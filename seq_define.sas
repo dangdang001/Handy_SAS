@@ -1,3 +1,4 @@
+# merge column "comb" group by newupid
 data seq_defined;
 length seq $100.;
    do until (last.newupid);
