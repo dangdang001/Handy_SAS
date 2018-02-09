@@ -203,3 +203,14 @@ quit;
 
 %mend;
 
+9. Define format 
+
+proc format;
+
+value yn
+0='2No'
+1='1Yes';
+
+run;
+
+
