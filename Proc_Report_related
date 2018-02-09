@@ -1,0 +1,78 @@
+1. add footnote and subtitle to table
+
+Example:
+
+%let char=age_group gender race2 region1 payer_new los_new facility_type phy_volume;
+%let comb=any_cb CHF VALVE  PULMCIRC PERIVASC
+HTN_C    PARA     NEURO    CHRNLUNG DM
+DMCX     HYPOTHY  RENLFAIL LIVER    ULCER
+AIDS     LYMPH    METS     TUMOR    ARTH
+COAG     OBESE    WGHTLOSS LYTES    BLDLOSS
+ANEMDEF  ALCOHOL  DRUG     PSYCH    DEPRESS TOBACCO;
+
+
+%glimmix_all(outcome=surg_type, data=nissen.volumn_phy, outdata=out_temp_glim, cov_list=&char. &comb.);
+%merge(dv=nissen.n_vs_r_exclude,randmp=out_temp_glim,outdata=out_temp);
+
+
+data out;
+set out_temp;
+char_list="&char.";
+comb_list="&comb.";
+if find(char_list,trim(variable))then title="Patients' characteristics";
+if find(comb_list,trim(variable)) then title="Comorbidities";
+run;
+
+options nodate nonumber;
+ods escapechar = '^';
+options orientation=portrait center;
+ods rtf file="&dir.\temp\n_vs_r_exclude_glmm.rtf" bodytitle style=custom1;
+proc report data = out spanrows nowd
+style(header)=[ fontsize=3]
+style(column)=[fontsize=3];
+  column title Vlabel level--Nissen randomp;
+  title  "Descriptive table for patients’ characteristics, comorbidities and complications comparing Nissen/Paraesophageal hernia repair patients";
+define title/ order noprint order=data;
+define Vlabel/ "Variable" order order=data;
+define total/"Total";
+define level/"Level";
+define randomp/ "P-value"  order center missing style(column)=[just=center cellwidth=1.25in] format=pvalue6.4 style={background=btotal. foreground=ftotal.};
+compute before title / style={just=center font_weight=bold fontsize=3};
+   line title $200.;
+endcomp;
+compute after / style={just=left};
+  line "*: P-value was based on univariate generalized linear mixed model accommodating the correlation within the same facility";
+  line "   or same physician;";
+endcomp;
+run; 
+ODS RTF CLOSE;
+
+2. add 2nd,3rd,.. level headers
+
+Example:
+
+proc report data = out_all5 spanrows nowd 
+style(header)=[ fontsize=3]
+style(column)=[fontsize=3];
+	column dx_category ("30-day readmission" N_read30 ord_read30) ("31 day-90 day readmission" N_read90 ord_read90) ("91 day-1 year readmission" N_read1y ord_read1y) ("1 year-2 year readmission" N_read2y ord_read2y) ("30 day-ED-visit" N_ed30 ord_ed30) ("31 day-90 day ED-visit" N_ed90 ord_ed90) ("91 day-1 year ED-visit" N_ed1y ord_ed1y) ("1 year-2 year ED-visit" N_ed2y ord_ed2y);
+  	title "Frequency table for top5-ranked primary diagnosis categories of readmission and ED-visit(overall)";
+define dx_category/"Primary diagnosis category";
+define N_read30/"N(%)" ;
+define ord_read30/"Rank" style(column)=[just=center cellwidth=0.5in];
+define N_read90/"N(%)" ;
+define ord_read90/"Rank" style(column)=[just=center cellwidth=0.5in];
+define N_read1y/"N(%)";
+define ord_read1y/"Rank" style(column)=[just=center cellwidth=0.5in];
+define N_read2y/"N(%)";
+define ord_read2y/"Rank" style(column)=[just=center cellwidth=0.5in];
+define N_ed30/"N(%)";
+define ord_ed30/"Rank" style(column)=[just=center cellwidth=0.5in];
+define N_ed90/"N(%)";
+define ord_ed90/"Rank" style(column)=[just=center cellwidth=0.5in];
+define N_ed1y/"N(%)";
+define ord_ed1y/"Rank" style(column)=[just=center cellwidth=0.5in];
+define N_ed2y/"N(%)";
+define ord_ed2y/"Rank" style(column)=[just=center cellwidth=0.5in];
+run; 
+ODS RTF CLOSE;
+
