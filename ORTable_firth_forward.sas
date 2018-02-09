@@ -77,8 +77,8 @@ data &odd.;
 	set &odd.;
 	ord +1;
 	variable=scan(effect,1);
-	levels=compbl(substr(effect,length(variable)+2));
-	ci=trim(left(round(LowerCL,.01)))||"-"||trim(left(round(UpperCL,.01)));
+	levels=substr(effect,length(variable)+2);
+	ci=strip(put(LowerCL,8.2))||"-"||strip(put(Uppercl,8.2));
 run;
 proc sql;
 	create table &outdata. as
@@ -92,6 +92,7 @@ proc sql;
     order by c.ord;
 quit;
 %mend mergerd;
+
 
 %mergerd(odds_&var., type3_&var., &out. , &in._reg);
 
