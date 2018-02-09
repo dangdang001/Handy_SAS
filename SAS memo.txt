@@ -1,0 +1,281 @@
+1. Export file as csv
+proc export data= out
+   outfile="&dir.\temp\file.csv"
+   dbms=csv
+   replace;
+run;
+
+2. Combine CI
+
+CI=strip(put(Lower,8.3))||"-"||strip(put(UpperCL,8.3));
+
+3. Assign macro variable without creating new sas dataset
+
+data _null_;
+set data;
+call symput("log_trans", 1);
+run;
+
+4. Delete existing dataset and create null dataset
+
+proc datasets lib=work nolist;
+delete temp;
+run;
+
+data new;
+stop;
+run;
+
+
+5. Multivariable logistic regression;
+
+proc contents data = kfh.p3_define4 noprint
+  out = log;
+run;
+proc sort data = log;
+  by varnum;
+run;
+data reg;
+  set log;
+  if label = '' then label = name;
+run;
+
+
+%let sig=parent_language p3_living_type_group Depression ;
+
+*add statement as a macro into the proc logistic later(function as print);
+%macro oddstat(var_now);
+  oddsratio &var_now.;
+%mend;
+
+%macro test();
+ods output ModelANOVA=type3  OddsRatiosWalds=odds;
+proc logistic data = kfh.p3_define4;
+class parent_language p3_living_type_group Depression;
+model complete (event = '2No') = &sig.;
+	  %let k = 1;
+	  %do %while (%scan(&sig.,&k.) NE );
+      %let var_now = %scan(&sig.,&k.);
+      %oddstat(&var_now.);
+      %let k = %eval(&k.+1);
+      %end;
+run ;
+%mend;
+
+%test();
+
+
+%macro mergerd(odd,test,outdata,vlabel);
+data &odd.;
+	set &odd.;
+	ord +1;
+	variable=scan(effect,1);
+	levels=substr(effect,length(variable)+2);
+	ci=strip(put(LowerCL,8.2))||"-"||strip(put(Uppercl,8.2));
+run;
+proc sql;
+	create table &outdata. as
+	select c.*,d.label
+	from
+	(select a.ord, a.variable,a.levels, a.OddsRatioEst,a.ci,b.ProbChiSq
+	from &odd. as a left join &test. as b
+	on a.variable=b.effect) as c
+	left join &vlabel. as d
+	on c.variable=d.name
+    order by c.ord;
+quit;
+%mend mergerd;
+
+%mergerd(odds,type3, mul_out, reg);
+
+proc format;
+value ftotal
+low - 0.05 = 'red';
+value btotal
+low - 0.05 = 'white';
+run;
+%put &today;
+ods escapechar = '^';
+options orientation=portrait center nodate;
+ods rtf file="&dir.\temp\mul.rtf" bodytitle style=custom1;
+proc report data = mul_out spanrows nowd
+style(header)=[ fontsize=3]
+style(column)=[fontsize=3];
+  column label levels -- ProbChiSq;
+  title "Estimated odds ratios and their 95% confidence intervals for Non-completers vs Completers";
+define levels--label/center;
+define label/ "Variable" order order = data ;
+define ci/"95% CI";
+  define ProbChiSq/ "P-value"  order center missing style(column)=[just=center cellwidth=1.25in] format=pvalue6.4 style={background=btotal. foreground=ftotal.};
+run;
+ods rtf close;
+
+
+6.passing labels from old variables to grouped variables;
+
+data test;
+   set kfh.p3_define4;
+run;
+
+data test1;
+   length Old New $50;
+   do i=1 to %sysfunc(countw(&char_old));
+      old=scan("&char_old", i);
+	  new=scan("&char_new", i);
+	  output;
+   end;
+run;
+
+proc sql noprint;
+   create table test2 as
+      select name, label
+	     from dictionary.columns
+		    where libname="WORK" & memname="TEST";
+   create table test3 as
+      select a.*, b.label
+	     from test1 as a, test2 as b
+		    where a.old=b.name;
+   select trim(new)||'="'||trim(label)||'"'
+      into :relabel separated by " "
+	     from test3;
+quit;
+
+data kfh.p3_define5;
+   set test(keep=&char_new);
+   label &relabel;
+run;
+
+
+7. scan list using do loop
+
+%macro list();
+	  %do i=1 %to %sysfunc(countw(&var_list));
+          %let var_now = %scan(&var_list.,&i., ' ');
+     	  ..........
+	  data temp1;
+	  length Var $40.;
+	  set temp;
+	  Var="&var_now.";
+	  drop variable vlabel;
+	  run;
+	  
+	  data out;
+	  set out temp1;
+	  run;
+
+      %end;
+%mend;
+
+8. select significant factors from univariate results and put as macro variables 
+
+%macro select_sig(uni=,indata=,outcome=);
+
+data &uni._1;
+set &uni.;
+length total_count 8.;
+if variable~="los_new" then total_count=substr(total,1,index(total, '(')-1);
+run; 
+
+proc sql;
+create table &uni._2 as
+select *, min(total_count) as min_count
+from &uni._1
+group by variable;
+quit;
+
+%global sig;
+proc sql NOPRINT;
+select distinct variable
+into: sig separated by "  "
+from &uni._2
+having (0<=randomp <0.05) and variable not in ("any_cp", "any_cb") and (variable="los_new" or min_count>=10);
+quit;
+%put &sig.;
+
+%global sig_cat;
+proc sql NOPRINT;
+select distinct variable
+into: sig_cat separated by "  "
+from &uni._2
+having (0<=randomp <0.05) and variable not in ("any_cp", "any_cb", "los_new") and min_count>=10;
+quit;
+%put &sig_cat.;
+
+%mend;
+
+9. Proc report(add footnote, and subtitle) to table
+
+Example:
+
+%let char=age_group gender race2 region1 payer_new los_new facility_type phy_volume;
+%let comb=any_cb CHF VALVE  PULMCIRC PERIVASC
+HTN_C    PARA     NEURO    CHRNLUNG DM
+DMCX     HYPOTHY  RENLFAIL LIVER    ULCER
+AIDS     LYMPH    METS     TUMOR    ARTH
+COAG     OBESE    WGHTLOSS LYTES    BLDLOSS
+ANEMDEF  ALCOHOL  DRUG     PSYCH    DEPRESS TOBACCO;
+
+
+%glimmix_all(outcome=surg_type, data=nissen.volumn_phy, outdata=out_temp_glim, cov_list=&char. &comb.);
+%merge(dv=nissen.n_vs_r_exclude,randmp=out_temp_glim,outdata=out_temp);
+
+
+data out;
+set out_temp;
+char_list="&char.";
+comb_list="&comb.";
+if find(char_list,trim(variable))then title="Patients' characteristics";
+if find(comb_list,trim(variable)) then title="Comorbidities";
+run;
+
+options nodate nonumber;
+ods escapechar = '^';
+options orientation=portrait center;
+ods rtf file="&dir.\temp\n_vs_r_exclude_glmm.rtf" bodytitle style=custom1;
+proc report data = out spanrows nowd
+style(header)=[ fontsize=3]
+style(column)=[fontsize=3];
+  column title Vlabel level--Nissen randomp;
+  title  "Descriptive table for patients’ characteristics, comorbidities and complications comparing Nissen/Paraesophageal hernia repair patients";
+define title/ order noprint order=data;
+define Vlabel/ "Variable" order order=data;
+define total/"Total";
+define level/"Level";
+define randomp/ "P-value"  order center missing style(column)=[just=center cellwidth=1.25in] format=pvalue6.4 style={background=btotal. foreground=ftotal.};
+compute before title / style={just=center font_weight=bold fontsize=3};
+   line title $200.;
+endcomp;
+compute after / style={just=left};
+  line "*: P-value was based on univariate generalized linear mixed model accommodating the correlation within the same facility";
+  line "   or same physician;";
+endcomp;
+run; 
+ODS RTF CLOSE;
+
+10.Proc report (add 2nd,3rd,.. level headers)
+
+proc report data = out_all5 spanrows nowd 
+style(header)=[ fontsize=3]
+style(column)=[fontsize=3];
+	column dx_category ("30-day readmission" N_read30 ord_read30) ("31 day-90 day readmission" N_read90 ord_read90) ("91 day-1 year readmission" N_read1y ord_read1y) ("1 year-2 year readmission" N_read2y ord_read2y) ("30 day-ED-visit" N_ed30 ord_ed30) ("31 day-90 day ED-visit" N_ed90 ord_ed90) ("91 day-1 year ED-visit" N_ed1y ord_ed1y) ("1 year-2 year ED-visit" N_ed2y ord_ed2y);
+  	title "Frequency table for top5-ranked primary diagnosis categories of readmission and ED-visit(overall)";
+define dx_category/"Primary diagnosis category";
+define N_read30/"N(%)" ;
+define ord_read30/"Rank" style(column)=[just=center cellwidth=0.5in];
+define N_read90/"N(%)" ;
+define ord_read90/"Rank" style(column)=[just=center cellwidth=0.5in];
+define N_read1y/"N(%)";
+define ord_read1y/"Rank" style(column)=[just=center cellwidth=0.5in];
+define N_read2y/"N(%)";
+define ord_read2y/"Rank" style(column)=[just=center cellwidth=0.5in];
+define N_ed30/"N(%)";
+define ord_ed30/"Rank" style(column)=[just=center cellwidth=0.5in];
+define N_ed90/"N(%)";
+define ord_ed90/"Rank" style(column)=[just=center cellwidth=0.5in];
+define N_ed1y/"N(%)";
+define ord_ed1y/"Rank" style(column)=[just=center cellwidth=0.5in];
+define N_ed2y/"N(%)";
+define ord_ed2y/"Rank" style(column)=[just=center cellwidth=0.5in];
+run; 
+ODS RTF CLOSE;
+
